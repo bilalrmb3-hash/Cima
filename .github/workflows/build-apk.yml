@@ -43,15 +43,73 @@ jobs:
               echo "$SDK_BIN_DIR" >> "$GITHUB_PATH"
             fi
           fi
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          yes | sdkmanager "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
+          (yes || true) | sdkmanager --licenses >/dev/null 2>&1 || true
+          (yes || true) | sdkmanager "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
 
-      - name: Verify project files and prepare keystore
+      - name: Prepare Firebase config, keystore, and environment
+        env:
+          GOOGLE_SERVICES_JSON_SECRET: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
-          if [ ! -f app/google-services.json ]; then
-            echo "::error title=Missing google-services.json::app/google-services.json was not found in the repository. Please push all project files from AI Studio."
-            exit 1
+          if [ ! -s app/google-services.json ]; then
+            if [ -n "$GOOGLE_SERVICES_JSON_SECRET" ]; then
+              printf '%s' "$GOOGLE_SERVICES_JSON_SECRET" > app/google-services.json
+              echo "Restored app/google-services.json from GitHub Secret GOOGLE_SERVICES_JSON."
+            else
+              echo "::warning title=Placeholder Firebase Config::app/google-services.json is not tracked in GitHub. Using a CI placeholder so the APK builds; add GOOGLE_SERVICES_JSON to GitHub Repository Secrets for live Firebase Sign-In."
+              cat > app/google-services.json << 'EOF'
+          {
+            "project_info": {
+              "project_number": "000000000000",
+              "project_id": "ci-placeholder-project",
+              "storage_bucket": "ci-placeholder-project.firebasestorage.app"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:000000000000:android:0000000000000000",
+                  "android_client_info": {
+                    "package_name": "com.aistudio.cineboard.kxmzpq"
+                  }
+                },
+                "oauth_client": [
+                  {
+                    "client_id": "000000000000-ciplaceholder.apps.googleusercontent.com",
+                    "client_type": 3
+                  }
+                ],
+                "api_key": [
+                  {
+                    "current_key": "CI_PLACEHOLDER_API_KEY"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": [
+                      {
+                        "client_id": "000000000000-ciplaceholder.apps.googleusercontent.com",
+                        "client_type": 3
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          EOF
+            fi
           fi
+
+          if [ ! -s app/src/main/res/values/firebase_applet_config.xml ]; then
+            mkdir -p app/src/main/res/values
+            cat > app/src/main/res/values/firebase_applet_config.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8" standalone="no"?>
+          <resources>
+              <string name="firestore_database_id" translatable="false">ai-studio-android-cineboar-ee3f1bc8-946a-40f7-bb31-bc9378d9f41e</string>
+          </resources>
+          EOF
+          fi
+
           if [ ! -s debug.keystore ]; then
             if [ -s debug.keystore.base64 ]; then
               base64 -d debug.keystore.base64 > debug.keystore
