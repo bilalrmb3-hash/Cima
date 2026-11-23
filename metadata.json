@@ -1,0 +1,6 @@
+{
+  "name": "CineBoard",
+  "description": "Bilingual Material You movie and TV series library, episode tracker, release calendar, and trailers hub with cloud sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

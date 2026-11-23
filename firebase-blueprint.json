@@ -1,0 +1,146 @@
+{
+  "entities": {
+    "LibraryEntry": {
+      "title": "LibraryEntry",
+      "description": "A movie or TV series saved in the user's personal CineBoard library with watch status and episode progress summary.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID matching request.auth.uid."
+        },
+        "mediaType": {
+          "type": "string",
+          "description": "Media category.",
+          "enum": ["movie", "series"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Display title of the movie or series."
+        },
+        "poster": {
+          "type": "string",
+          "description": "Optional poster image URL."
+        },
+        "background": {
+          "type": "string",
+          "description": "Optional backdrop image URL."
+        },
+        "releaseInfo": {
+          "type": "string",
+          "description": "Optional release year or span string."
+        },
+        "imdbRating": {
+          "type": "string",
+          "description": "Optional IMDb rating string."
+        },
+        "status": {
+          "type": "string",
+          "description": "User watch status.",
+          "enum": ["WATCHLIST", "WATCHING", "COMPLETED"]
+        },
+        "totalEpisodes": {
+          "type": "integer",
+          "description": "Total number of known episodes for a series (0 for movies)."
+        },
+        "watchedCount": {
+          "type": "integer",
+          "description": "Number of watched episodes (0 or 1 for movies)."
+        },
+        "lastWatchedEpisodeId": {
+          "type": "string",
+          "description": "Optional Stremio episode ID (e.g., tt0944947:1:1) last watched."
+        },
+        "lastWatchedLabel": {
+          "type": "string",
+          "description": "Optional short label of last watched episode (e.g., S1 E1)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-generated creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-generated last update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "mediaType",
+        "title",
+        "status",
+        "totalEpisodes",
+        "watchedCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SeriesProgress": {
+      "title": "SeriesProgress",
+      "description": "Detailed watched episode IDs and resume position for a TV series or movie.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID matching request.auth.uid."
+        },
+        "mediaType": {
+          "type": "string",
+          "description": "Media category.",
+          "enum": ["movie", "series"]
+        },
+        "watchedEpisodeIds": {
+          "type": "array",
+          "description": "Bounded list of watched episode IDs (e.g., tt0944947:1:1)."
+        },
+        "lastEpisodeId": {
+          "type": "string",
+          "description": "Optional ID of the most recently watched episode."
+        },
+        "lastSeason": {
+          "type": "integer",
+          "description": "Season number of the most recently watched episode."
+        },
+        "lastEpisode": {
+          "type": "integer",
+          "description": "Episode number of the most recently watched episode."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-generated creation timestamp (FieldValue.serverTimestamp())."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-generated last update timestamp (FieldValue.serverTimestamp())."
+        }
+      },
+      "required": [
+        "userId",
+        "mediaType",
+        "watchedEpisodeIds",
+        "lastSeason",
+        "lastEpisode",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/library/{mediaId}": {
+      "schema": {
+        "$ref": "#/entities/LibraryEntry"
+      },
+      "description": "User's personal saved movies and series library entries."
+    },
+    "/users/{userId}/progress/{mediaId}": {
+      "schema": {
+        "$ref": "#/entities/SeriesProgress"
+      },
+      "description": "User's watched episode checklist and resume state per title."
+    }
+  }
+}

@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global safety net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidLibraryEntry(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.mediaType in ['movie', 'series'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             (!('poster' in data) || (data.poster is string && data.poster.size() <= 500)) &&
+             (!('background' in data) || (data.background is string && data.background.size() <= 500)) &&
+             (!('releaseInfo' in data) || (data.releaseInfo is string && data.releaseInfo.size() <= 60)) &&
+             (!('imdbRating' in data) || (data.imdbRating is string && data.imdbRating.size() <= 16)) &&
+             data.status in ['WATCHLIST', 'WATCHING', 'COMPLETED'] &&
+             data.totalEpisodes is int && data.totalEpisodes >= 0 && data.totalEpisodes <= 5000 &&
+             data.watchedCount is int && data.watchedCount >= 0 && data.watchedCount <= 5000 &&
+             (!('lastWatchedEpisodeId' in data) || (data.lastWatchedEpisodeId is string && data.lastWatchedEpisodeId.size() <= 128)) &&
+             (!('lastWatchedLabel' in data) || (data.lastWatchedLabel is string && data.lastWatchedLabel.size() <= 80));
+    }
+
+    function isValidSeriesProgress(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.mediaType in ['movie', 'series'] &&
+             data.watchedEpisodeIds is list && data.watchedEpisodeIds.size() <= 2000 &&
+             (data.watchedEpisodeIds.size() == 0 || (data.watchedEpisodeIds[0] is string && data.watchedEpisodeIds[0].size() <= 128)) &&
+             (!('lastEpisodeId' in data) || (data.lastEpisodeId is string && data.lastEpisodeId.size() <= 128)) &&
+             data.lastSeason is int && data.lastSeason >= 0 && data.lastSeason <= 200 &&
+             data.lastEpisode is int && data.lastEpisode >= 0 && data.lastEpisode <= 2000;
+    }
+
+    match /users/{userId}/library/{mediaId} {
+      allow get: if isOwner(userId) && isValidId(mediaId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(mediaId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'mediaType', 'title', 'status',
+                         'totalEpisodes', 'watchedCount', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'mediaType', 'title', 'poster', 'background',
+                         'releaseInfo', 'imdbRating', 'status', 'totalEpisodes',
+                         'watchedCount', 'lastWatchedEpisodeId', 'lastWatchedLabel',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidLibraryEntry(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(mediaId) &&
+                       isValidLibraryEntry(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().mediaType == existing().mediaType &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       (
+                         // Action: Update watch status or episode progress summary
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'status', 'totalEpisodes', 'watchedCount',
+                           'lastWatchedEpisodeId', 'lastWatchedLabel', 'updatedAt'
+                         ]) ||
+                         // Action: Refresh metadata cache alongside status/progress
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'title', 'poster', 'background', 'releaseInfo', 'imdbRating',
+                           'status', 'totalEpisodes', 'watchedCount',
+                           'lastWatchedEpisodeId', 'lastWatchedLabel', 'updatedAt'
+                         ])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(mediaId);
+    }
+
+    match /users/{userId}/progress/{mediaId} {
+      allow get: if isOwner(userId) && isValidId(mediaId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(mediaId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'userId', 'mediaType', 'watchedEpisodeIds',
+                         'lastSeason', 'lastEpisode', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'mediaType', 'watchedEpisodeIds',
+                         'lastEpisodeId', 'lastSeason', 'lastEpisode',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt is timestamp && incoming().createdAt <= request.time &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       isValidSeriesProgress(incoming());
+
+      allow update: if isOwner(userId) &&
+                       isValidId(mediaId) &&
+                       isValidSeriesProgress(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().mediaType == existing().mediaType &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt is timestamp && incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'watchedEpisodeIds', 'lastEpisodeId',
+                         'lastSeason', 'lastEpisode', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(mediaId);
+    }
+  }
+}
