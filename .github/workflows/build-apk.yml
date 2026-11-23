@@ -26,15 +26,23 @@ jobs:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Android SDK and accept licenses
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Accept all Android SDK licenses
+      - name: Install Android 36.1 SDK & accept licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
-            yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          export ANDROID_HOME="$SDK_DIR"
+          export ANDROID_SDK_ROOT="$SDK_DIR"
+          export PATH="$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$PATH"
+          if ! command -v sdkmanager >/dev/null 2>&1; then
+            SDKMGR="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
+            if [ -n "$SDKMGR" ]; then
+              export PATH="$(dirname "$SDKMGR"):$PATH"
+            fi
           fi
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          yes | sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0"
 
       - name: Prepare debug keystore and environment config
         run: |
@@ -42,12 +50,13 @@ jobs:
             if [ -s debug.keystore.base64 ]; then
               base64 -d debug.keystore.base64 > debug.keystore
             else
-              keytool -genkeypair -v -keystore debug.keystore \
+              keytool -genkeypair -noprompt -keystore debug.keystore \
                 -storepass android -alias androiddebugkey -keypass android \
                 -keyalg RSA -keysize 2048 -validity 10000 \
                 -dname "CN=Android Debug,O=Android,C=US"
             fi
           fi
+          keytool -list -keystore debug.keystore -storepass android -alias androiddebugkey >/dev/null
           [ -f .env.example ] || touch .env.example
           [ -f .env ] || cp .env.example .env
 
@@ -57,7 +66,15 @@ jobs:
           gradle-version: "9.3.1"
 
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          if ! gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log; then
+            echo "### Gradle Build Error Log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 80 /tmp/gradle-build.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v6
