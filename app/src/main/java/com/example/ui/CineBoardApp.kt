@@ -1,6 +1,5 @@
 package com.example.ui
 
-import android.app.Application
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
