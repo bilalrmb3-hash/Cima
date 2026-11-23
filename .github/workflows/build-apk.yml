@@ -29,23 +29,29 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android 36.1 SDK & accept licenses
+      - name: Install Android 36 & 36.1 SDK and accept licenses
         run: |
           SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          export ANDROID_HOME="$SDK_DIR"
-          export ANDROID_SDK_ROOT="$SDK_DIR"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
           export PATH="$SDK_DIR/cmdline-tools/latest/bin:$SDK_DIR/platform-tools:$PATH"
           if ! command -v sdkmanager >/dev/null 2>&1; then
             SDKMGR="$(find "$SDK_DIR" -name sdkmanager -type f 2>/dev/null | head -n 1 || true)"
             if [ -n "$SDKMGR" ]; then
-              export PATH="$(dirname "$SDKMGR"):$PATH"
+              SDK_BIN_DIR="$(dirname "$SDKMGR")"
+              export PATH="$SDK_BIN_DIR:$PATH"
+              echo "$SDK_BIN_DIR" >> "$GITHUB_PATH"
             fi
           fi
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
-          yes | sdkmanager "platform-tools" "platforms;android-36.1" "build-tools;36.0.0"
+          yes | sdkmanager "platform-tools" "platforms;android-36" "platforms;android-36.1" "build-tools;36.0.0"
 
-      - name: Prepare debug keystore and environment config
+      - name: Verify project files and prepare keystore
         run: |
+          if [ ! -f app/google-services.json ]; then
+            echo "::error title=Missing google-services.json::app/google-services.json was not found in the repository. Please push all project files from AI Studio."
+            exit 1
+          fi
           if [ ! -s debug.keystore ]; then
             if [ -s debug.keystore.base64 ]; then
               base64 -d debug.keystore.base64 > debug.keystore
@@ -64,14 +70,17 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "9.3.1"
+          cache-provider: basic
 
       - name: Build Debug APK
         run: |
           set -o pipefail
-          if ! gradle :app:assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/gradle-build.log; then
+          if ! gradle :app:assembleDebug --no-daemon --no-configuration-cache --stacktrace --console=plain -Dorg.gradle.jvmargs="-Xmx3g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8" 2>&1 | tee /tmp/gradle-build.log; then
+            ERROR_SNIPPET="$(grep -A 8 -E 'FAILURE:|What went wrong:|Execution failed|e: ' /tmp/gradle-build.log | head -n 20 | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g')"
+            echo "::error title=Gradle Build Failed::${ERROR_SNIPPET:-See Gradle Build Error Log in Summary}"
             echo "### Gradle Build Error Log" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 80 /tmp/gradle-build.log >> "$GITHUB_STEP_SUMMARY"
+            tail -n 100 /tmp/gradle-build.log >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
