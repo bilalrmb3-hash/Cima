@@ -73,6 +73,8 @@ import coil.compose.AsyncImage
 import com.example.data.firestore.LibraryEntry
 import com.example.data.firestore.SeriesProgress
 import com.example.data.firestore.WatchStatus
+import com.example.data.player.PlaybackBookmark
+import com.example.data.player.formatDurationMs
 import com.example.data.remote.EpisodeItem
 import com.example.data.remote.MediaDetails
 import com.example.data.remote.TrailerItem
@@ -90,8 +92,11 @@ fun DetailScreen(
     detailsState: UiState<MediaDetails>,
     libraryEntry: LibraryEntry?,
     progress: SeriesProgress?,
+    bookmarks: Map<String, PlaybackBookmark>,
     onBack: () -> Unit,
     onRetry: () -> Unit,
+    onPlayMovie: (MediaDetails) -> Unit,
+    onPlayEpisode: (MediaDetails, EpisodeItem) -> Unit,
     onUpdateStatus: (MediaDetails, WatchStatus, Boolean) -> Unit,
     onRemoveFromLibrary: (String) -> Unit,
     onToggleEpisode: (MediaDetails, EpisodeItem) -> Unit,
@@ -289,11 +294,39 @@ fun DetailScreen(
                                 .padding(horizontal = 16.dp, vertical = 18.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
+                            if (details.type == "movie") {
+                                val movieBookmark = bookmarks[details.id]?.takeIf { it.isMeaningfulResume }
+                                Button(
+                                    onClick = { onPlayMovie(details) },
+                                    shape = RoundedCornerShape(14.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(52.dp)
+                                        .testTag("play_movie_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = if (movieBookmark != null) {
+                                            "${strings.playMovie} • ${strings.resumeFromFormat.format(formatDurationMs(movieBookmark.positionMs))}"
+                                        } else {
+                                            strings.playMovie
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Button(
+                                FilledTonalButton(
                                     onClick = {
                                         when {
                                             details.trailers.isEmpty() -> {
@@ -314,7 +347,7 @@ fun DetailScreen(
                                         .testTag("watch_trailer_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Rounded.PlayArrow,
+                                        imageVector = Icons.Rounded.VideoLibrary,
                                         contentDescription = null,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -510,9 +543,12 @@ fun DetailScreen(
 
                         items(seasonEpisodes, key = { it.id }) { ep ->
                             val isWatched = ep.id in watchedIds
+                            val epBookmark = bookmarks[ep.id]?.takeIf { it.isMeaningfulResume }
                             EpisodeChecklistCard(
                                 episode = ep,
                                 isWatched = isWatched,
+                                bookmark = epBookmark,
+                                onPlayEpisode = { onPlayEpisode(details, ep) },
                                 onToggleWatched = { onToggleEpisode(details, ep) },
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)
                             )
@@ -566,6 +602,8 @@ private fun DetailBackButton(
 private fun EpisodeChecklistCard(
     episode: EpisodeItem,
     isWatched: Boolean,
+    bookmark: PlaybackBookmark?,
+    onPlayEpisode: () -> Unit,
     onToggleWatched: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -634,7 +672,35 @@ private fun EpisodeChecklistCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    if (bookmark != null) {
+                        Text(
+                            text = strings.resumeFromFormat.format(formatDurationMs(bookmark.positionMs)),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
+
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    IconButton(
+                        onClick = onPlayEpisode,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("play_episode_${episode.id}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = strings.playEpisode,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+
+                Spacer(Modifier.width(4.dp))
 
                 IconButton(
                     onClick = onToggleWatched,

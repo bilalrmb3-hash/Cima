@@ -18,6 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.Login
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.CloudDone
+import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -53,6 +54,8 @@ import com.google.firebase.auth.FirebaseUser
 fun SettingsBottomSheet(
     user: FirebaseUser?,
     preferences: UserPreferences,
+    activeAddonsCount: Int,
+    onManageAddons: () -> Unit,
     onLanguageChange: (AppLanguage) -> Unit,
     onThemeModeChange: (ThemeMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
@@ -228,6 +231,19 @@ fun SettingsBottomSheet(
                         modifier = Modifier.testTag("settings_dynamic_color_switch")
                     )
                 }
+            }
+
+            FilledTonalButton(
+                onClick = onManageAddons,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("settings_manage_addons_button")
+            ) {
+                Icon(Icons.Rounded.Extension, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("${strings.manageAddons} (${strings.activeAddonsCountFormat.format(activeAddonsCount)})")
             }
 
             if (user != null) {

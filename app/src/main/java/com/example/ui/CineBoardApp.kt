@@ -69,9 +69,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import coil.compose.AsyncImage
 import com.example.R
+import com.example.data.addons.PlaybackTarget
+import com.example.data.addons.StremioAddonRepository
 import com.example.data.firestore.LibraryRepository
 import com.example.data.firestore.SeriesProgress
 import com.example.data.firestore.WatchStatus
+import com.example.data.player.LocalPlaybackStore
 import com.example.data.preferences.AppLanguage
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.data.remote.CinemetaRepository
@@ -81,17 +84,21 @@ import com.example.ui.auth.signOutUser
 import com.example.ui.i18n.ArabicStrings
 import com.example.ui.i18n.EnglishStrings
 import com.example.ui.i18n.LocalStrings
+import com.example.ui.screens.AddonsBottomSheet
 import com.example.ui.screens.BoardScreen
 import com.example.ui.screens.CalendarScreen
 import com.example.ui.screens.DetailScreen
 import com.example.ui.screens.DiscoverScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.SettingsBottomSheet
+import com.example.ui.screens.SourcePickerBottomSheet
+import com.example.ui.screens.VideoPlayerScreen
 import com.example.ui.theme.CineBoardTheme
 import com.example.ui.viewmodel.CalendarSections
 import com.example.ui.viewmodel.CatalogViewModel
 import com.example.ui.viewmodel.LibraryMessageType
 import com.example.ui.viewmodel.LibraryViewModel
+import com.example.ui.viewmodel.PlayerSourceViewModel
 import com.example.ui.viewmodel.SettingsViewModel
 import com.example.ui.viewmodel.UiState
 import com.google.firebase.Firebase
@@ -200,6 +207,19 @@ private fun MainContent(
         }
     )
 
+    val playerSourceViewModel: PlayerSourceViewModel = viewModel(
+        key = "player_sources",
+        factory = viewModelFactory {
+            initializer {
+                val app = checkNotNull(this[APPLICATION_KEY])
+                PlayerSourceViewModel(
+                    addonRepository = StremioAddonRepository(app.applicationContext),
+                    playbackStore = LocalPlaybackStore(app.applicationContext)
+                )
+            }
+        }
+    )
+
     val libraryViewModel: LibraryViewModel? = if (user != null) {
         key(user.uid) {
             viewModel(
@@ -279,8 +299,16 @@ private fun MainContent(
     val isTopLevelRoute = tabs.any { it.route == currentRoute }
 
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showAddonsSheet by remember { mutableStateOf(false) }
     var showSignInDialog by remember { mutableStateOf(false) }
     val isGuest = user == null
+
+    val installedAddons by playerSourceViewModel.installedAddons.collectAsStateWithLifecycle()
+    val addonInstallState by playerSourceViewModel.addonInstallState.collectAsStateWithLifecycle()
+    val bookmarks by playerSourceViewModel.bookmarks.collectAsStateWithLifecycle()
+    val sourcePickerTarget by playerSourceViewModel.sourcePickerTarget.collectAsStateWithLifecycle()
+    val streamFetchState by playerSourceViewModel.streamFetchState.collectAsStateWithLifecycle()
+    val activeSession by playerSourceViewModel.activeSession.collectAsStateWithLifecycle()
 
     val navigateToTab: (String) -> Unit = { route ->
         navController.navigate(route) {
@@ -517,8 +545,49 @@ private fun MainContent(
                             detailsState = detailState,
                             libraryEntry = libraryMap[id],
                             progress = progressMap[id],
+                            bookmarks = bookmarks,
                             onBack = { navController.popBackStack() },
                             onRetry = { catalogViewModel.loadDetails(type, id, forceRefresh = true) },
+                            onPlayMovie = { details ->
+                                playerSourceViewModel.openSourcePicker(
+                                    PlaybackTarget(
+                                        playbackKey = details.id,
+                                        mediaId = details.id,
+                                        mediaType = "movie",
+                                        streamId = details.id,
+                                        title = details.name,
+                                        subtitle = details.releaseInfo,
+                                        poster = details.poster
+                                    )
+                                )
+                            },
+                            onPlayEpisode = { details, episode ->
+                                val seasonEps = details.episodesForSeason(episode.season)
+                                val idx = seasonEps.indexOfFirst { it.id == episode.id }
+                                val nextEp = if (idx >= 0 && idx + 1 < seasonEps.size) {
+                                    seasonEps[idx + 1]
+                                } else {
+                                    val nextSeason = details.seasons.firstOrNull { it > episode.season }
+                                    nextSeason?.let { details.episodesForSeason(it).firstOrNull() }
+                                }
+                                playerSourceViewModel.openSourcePicker(
+                                    PlaybackTarget(
+                                        playbackKey = episode.id,
+                                        mediaId = details.id,
+                                        mediaType = "series",
+                                        streamId = "${details.id}:${episode.season}:${episode.episode}",
+                                        title = details.name,
+                                        subtitle = "${strings.episodeShortFormat.format(episode.season, episode.episode)} • ${episode.title}",
+                                        poster = details.poster,
+                                        nextEpisodeStreamId = nextEp?.let { "${details.id}:${it.season}:${it.episode}" },
+                                        nextEpisodePlaybackKey = nextEp?.id,
+                                        nextEpisodeTitle = nextEp?.title,
+                                        nextEpisodeSubtitle = nextEp?.let {
+                                            "${strings.episodeShortFormat.format(it.season, it.episode)} • ${it.title}"
+                                        }
+                                    )
+                                )
+                            },
                             onUpdateStatus = { details, status, inLib ->
                                 val vm = libraryViewModel
                                 if (vm == null) {
@@ -565,6 +634,11 @@ private fun MainContent(
         SettingsBottomSheet(
             user = user,
             preferences = prefs,
+            activeAddonsCount = installedAddons.count { it.enabled },
+            onManageAddons = {
+                showSettingsSheet = false
+                showAddonsSheet = true
+            },
             onLanguageChange = { settingsViewModel.setLanguage(it) },
             onThemeModeChange = { settingsViewModel.setThemeMode(it) },
             onDynamicColorChange = { settingsViewModel.setDynamicColor(it) },
@@ -577,6 +651,77 @@ private fun MainContent(
                 signOutUser(credentialManager = credentialManager, scope = scope)
             },
             onDismiss = { showSettingsSheet = false }
+        )
+    }
+
+    if (showAddonsSheet) {
+        AddonsBottomSheet(
+            addons = installedAddons,
+            installState = addonInstallState,
+            onInstallAddon = { playerSourceViewModel.installAddon(it) },
+            onResetInstallState = { playerSourceViewModel.resetAddonInstallState() },
+            onToggleAddon = { id, enabled -> playerSourceViewModel.toggleAddon(id, enabled) },
+            onRemoveAddon = { id -> playerSourceViewModel.removeAddon(id) },
+            onDismiss = { showAddonsSheet = false }
+        )
+    }
+
+    sourcePickerTarget?.let { target ->
+        SourcePickerBottomSheet(
+            target = target,
+            bookmark = bookmarks[target.playbackKey],
+            addons = installedAddons,
+            streamFetchState = streamFetchState,
+            onRefreshStreams = { playerSourceViewModel.refreshStreams() },
+            onManageAddons = { showAddonsSheet = true },
+            onSelectAddonStream = { stream, subs ->
+                playerSourceViewModel.startAddonStream(target, stream, subs)
+            },
+            onPlayDirectUrl = { url, subUrl, extraSubs ->
+                playerSourceViewModel.startDirectUrl(target, url, subUrl, extraSubs)
+            },
+            onPlayLocalFile = { uri, name, subUri ->
+                playerSourceViewModel.startLocalFile(target, uri, name, subUri)
+            },
+            onDismiss = { playerSourceViewModel.dismissSourcePicker() }
+        )
+    }
+
+    activeSession?.let { session ->
+        VideoPlayerScreen(
+            session = session,
+            initialBookmark = bookmarks[session.target.playbackKey],
+            onBack = { playerSourceViewModel.closePlayer() },
+            onSavePosition = { pos, dur ->
+                playerSourceViewModel.savePlaybackPosition(
+                    target = session.target,
+                    sourceTitle = session.stream.addonName,
+                    positionMs = pos,
+                    durationMs = dur
+                )
+            },
+            onNextEpisode = {
+                playerSourceViewModel.switchToNextEpisode(session.target)
+            },
+            onMarkCompleted = {
+                val vm = libraryViewModel
+                if (vm == null) {
+                    showSignInDialog = true
+                } else {
+                    val detailKey = "${session.target.mediaType}:${session.target.mediaId}"
+                    val details = (detailsStates[detailKey] as? UiState.Success)?.data
+                    if (details != null) {
+                        if (session.target.mediaType == "movie") {
+                            vm.updateMediaStatus(details, WatchStatus.COMPLETED, libraryMap.containsKey(details.id))
+                        } else {
+                            val ep = details.episodes.firstOrNull { it.id == session.target.playbackKey }
+                            if (ep != null) {
+                                vm.toggleEpisodeWatched(details, ep)
+                            }
+                        }
+                    }
+                }
+            }
         )
     }
 
