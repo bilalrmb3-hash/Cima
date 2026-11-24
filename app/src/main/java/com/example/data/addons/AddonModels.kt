@@ -83,6 +83,8 @@ data class PlaybackTarget(
 data class ActivePlaybackSession(
     val target: PlaybackTarget,
     val stream: PlayableStream,
+    val availableStreams: List<PlayableStream> = emptyList(),
     val extraSubtitles: List<SubtitleTrackItem> = emptyList(),
-    val localSubtitleUri: Uri? = null
+    val localSubtitleUri: Uri? = null,
+    val initialSeekOverrideMs: Long? = null
 )

@@ -1,9 +1,12 @@
 package com.example.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,7 +22,9 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Explore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
@@ -44,6 +49,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -52,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
@@ -306,6 +313,7 @@ private fun MainContent(
     val installedAddons by playerSourceViewModel.installedAddons.collectAsStateWithLifecycle()
     val addonInstallState by playerSourceViewModel.addonInstallState.collectAsStateWithLifecycle()
     val bookmarks by playerSourceViewModel.bookmarks.collectAsStateWithLifecycle()
+    val autoPlayTarget by playerSourceViewModel.autoPlayTarget.collectAsStateWithLifecycle()
     val sourcePickerTarget by playerSourceViewModel.sourcePickerTarget.collectAsStateWithLifecycle()
     val streamFetchState by playerSourceViewModel.streamFetchState.collectAsStateWithLifecycle()
     val activeSession by playerSourceViewModel.activeSession.collectAsStateWithLifecycle()
@@ -549,7 +557,7 @@ private fun MainContent(
                             onBack = { navController.popBackStack() },
                             onRetry = { catalogViewModel.loadDetails(type, id, forceRefresh = true) },
                             onPlayMovie = { details ->
-                                playerSourceViewModel.openSourcePicker(
+                                playerSourceViewModel.onPlayRequested(
                                     PlaybackTarget(
                                         playbackKey = details.id,
                                         mediaId = details.id,
@@ -570,7 +578,7 @@ private fun MainContent(
                                     val nextSeason = details.seasons.firstOrNull { it > episode.season }
                                     nextSeason?.let { details.episodesForSeason(it).firstOrNull() }
                                 }
-                                playerSourceViewModel.openSourcePicker(
+                                playerSourceViewModel.onPlayRequested(
                                     PlaybackTarget(
                                         playbackKey = episode.id,
                                         mediaId = details.id,
@@ -666,16 +674,70 @@ private fun MainContent(
         )
     }
 
+    autoPlayTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { playerSourceViewModel.cancelAutoPlay() },
+            title = {
+                Text(
+                    text = strings.preparingAutoPlayTitle,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    CircularProgressIndicator()
+                    Text(
+                        text = listOfNotNull(target.title, target.subtitle).joinToString(" • "),
+                        style = MaterialTheme.typography.titleSmall,
+                        textAlign = TextAlign.Center
+                    )
+                    Text(
+                        text = strings.preparingAutoPlayDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { playerSourceViewModel.showAllSourcesDuringAutoPlay() },
+                    modifier = Modifier.testTag("autoplay_show_sources_button")
+                ) {
+                    Text(strings.showAllSources)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { playerSourceViewModel.cancelAutoPlay() },
+                    modifier = Modifier.testTag("autoplay_cancel_button")
+                ) {
+                    Text(strings.cancelLabel)
+                }
+            }
+        )
+    }
+
     sourcePickerTarget?.let { target ->
         SourcePickerBottomSheet(
             target = target,
             bookmark = bookmarks[target.playbackKey],
             addons = installedAddons,
+            addonInstallState = addonInstallState,
             streamFetchState = streamFetchState,
+            onInstallAddonAndPlay = { url ->
+                playerSourceViewModel.installAddon(url, autoPlayIfPickerOpen = true)
+            },
+            onResetInstallState = { playerSourceViewModel.resetAddonInstallState() },
             onRefreshStreams = { playerSourceViewModel.refreshStreams() },
             onManageAddons = { showAddonsSheet = true },
-            onSelectAddonStream = { stream, subs ->
-                playerSourceViewModel.startAddonStream(target, stream, subs)
+            onSelectAddonStream = { stream, subs, allPlayable ->
+                playerSourceViewModel.startAddonStream(target, stream, subs, allPlayable)
             },
             onPlayDirectUrl = { url, subUrl, extraSubs ->
                 playerSourceViewModel.startDirectUrl(target, url, subUrl, extraSubs)
@@ -699,6 +761,14 @@ private fun MainContent(
                     positionMs = pos,
                     durationMs = dur
                 )
+            },
+            onSwitchStream = { selectedStream, posMs ->
+                playerSourceViewModel.switchActiveStream(selectedStream, posMs)
+            },
+            onOpenAllSources = {
+                val target = session.target
+                playerSourceViewModel.closePlayer()
+                playerSourceViewModel.openSourcePicker(target)
             },
             onNextEpisode = {
                 playerSourceViewModel.switchToNextEpisode(session.target)

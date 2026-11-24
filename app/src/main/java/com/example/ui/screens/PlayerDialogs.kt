@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.media3.common.TrackGroup
+import com.example.data.addons.PlayableStream
 import com.example.ui.i18n.LocalStrings
 
 data class VideoQualityOption(
@@ -194,6 +195,52 @@ fun SpeedPickerDialog(
                         selected = kotlin.math.abs(currentSpeed - speed) < 0.01f,
                         onClick = { onSelectSpeed(speed) }
                     )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(strings.close) }
+        }
+    )
+}
+
+@Composable
+fun StreamSourcePickerDialog(
+    streams: List<PlayableStream>,
+    activeStreamId: String,
+    onSelectStream: (PlayableStream) -> Unit,
+    onOpenAllSources: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = LocalStrings.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(strings.switchStreamTitle) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.heightIn(max = 260.dp)
+                ) {
+                    items(streams, key = { it.id }) { stream ->
+                        val qualityBadge = when {
+                            stream.qualityScore >= 2160 -> "4K • "
+                            stream.qualityScore >= 720 -> "${stream.qualityScore}p • "
+                            else -> ""
+                        }
+                        TrackOptionRow(
+                            label = "$qualityBadge${stream.addonName} — ${stream.title}",
+                            selected = stream.id == activeStreamId,
+                            onClick = { onSelectStream(stream) }
+                        )
+                    }
+                }
+                OutlinedButton(
+                    onClick = onOpenAllSources,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(strings.showAllSources)
                 }
             }
         },

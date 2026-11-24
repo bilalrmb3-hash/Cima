@@ -164,6 +164,15 @@ data class AppStrings(
     val externalSubtitleOption: String,
     val localProgressSavedHint: String,
 
+    val preparingAutoPlayTitle: String,
+    val preparingAutoPlayDesc: String,
+    val showAllSources: String,
+    val cancelLabel: String,
+    val sourcesLabel: String,
+    val otherSourcesOption: String,
+    val installAddonOneTimeHint: String,
+    val switchStreamTitle: String,
+
     val genreMap: Map<String, String>
 ) {
     fun statusLabel(status: WatchStatus): String = when (status) {
@@ -335,6 +344,15 @@ val ArabicStrings = AppStrings(
     markWatchedAction = "تعليم كمشاهَد",
     externalSubtitleOption = "ملف ترجمة من الجهاز",
     localProgressSavedHint = "موضع التوقف محفوظ محلياً على جهازك فقط",
+
+    preparingAutoPlayTitle = "جاري تشغيل أعلى جودة",
+    preparingAutoPlayDesc = "يتم البحث في إضافات Stremio عن أفضل مصدر بث متاح...",
+    showAllSources = "عرض كل المصادر",
+    cancelLabel = "إلغاء",
+    sourcesLabel = "المصادر",
+    otherSourcesOption = "خيارات أخرى (ملف محلي أو رابط)",
+    installAddonOneTimeHint = "ثبّت أي إضافة Stremio مرة واحدة فقط، وسيتم تشغيل جميع الأفلام والحلقات تلقائياً بأعلى جودة عند الضغط على التشغيل.",
+    switchStreamTitle = "تبديل مصدر البث",
 
     genreMap = mapOf(
         "Action" to "أكشن",
@@ -514,6 +532,15 @@ val EnglishStrings = AppStrings(
     markWatchedAction = "Mark Watched",
     externalSubtitleOption = "Pick Subtitle File",
     localProgressSavedHint = "Stop position is saved locally on this device only",
+
+    preparingAutoPlayTitle = "Starting Highest Quality",
+    preparingAutoPlayDesc = "Fetching the best available stream from your Stremio addons...",
+    showAllSources = "Show All Sources",
+    cancelLabel = "Cancel",
+    sourcesLabel = "Sources",
+    otherSourcesOption = "Other Options (Local File or Direct URL)",
+    installAddonOneTimeHint = "Connect any Stremio addon once, and movies & episodes will play automatically in highest quality with one tap.",
+    switchStreamTitle = "Switch Stream Source",
 
     genreMap = emptyMap()
 )

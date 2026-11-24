@@ -49,6 +49,7 @@ import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Subtitles
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
@@ -108,6 +109,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.example.data.addons.ActivePlaybackSession
+import com.example.data.addons.PlayableStream
 import com.example.data.addons.SubtitleTrackItem
 import com.example.data.player.PlaybackBookmark
 import com.example.data.player.formatDurationMs
@@ -117,7 +119,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 private enum class ActivePlayerDialog {
-    NONE, QUALITY, SUBTITLES, AUDIO, SPEED
+    NONE, QUALITY, SUBTITLES, AUDIO, SPEED, SOURCES
 }
 
 @OptIn(UnstableApi::class)
@@ -127,6 +129,8 @@ fun VideoPlayerScreen(
     initialBookmark: PlaybackBookmark?,
     onBack: () -> Unit,
     onSavePosition: (positionMs: Long, durationMs: Long) -> Unit,
+    onSwitchStream: (PlayableStream, Long) -> Unit,
+    onOpenAllSources: () -> Unit,
     onNextEpisode: () -> Unit,
     onMarkCompleted: () -> Unit
 ) {
@@ -212,11 +216,12 @@ fun VideoPlayerScreen(
     }
 
     LaunchedEffect(session, customLocalSubtitleUri) {
-        val resumePos = if (!hasRestoredBookmark && initialBookmark != null && initialBookmark.isMeaningfulResume) {
-            initialBookmark.positionMs
-        } else {
-            exoPlayer.currentPosition.coerceAtLeast(0L)
-        }
+        val resumePos = session.initialSeekOverrideMs
+            ?: if (!hasRestoredBookmark && initialBookmark != null && initialBookmark.isMeaningfulResume) {
+                initialBookmark.positionMs
+            } else {
+                exoPlayer.currentPosition.coerceAtLeast(0L)
+            }
         hasRestoredBookmark = true
         playbackError = null
         exoPlayer.setMediaItem(buildMediaItem(customLocalSubtitleUri), resumePos)
@@ -257,8 +262,7 @@ fun VideoPlayerScreen(
         onDispose { }
     }
 
-    DisposableEffect(Unit) {
-        val activity = context.findActivity()
+    DisposableEffect(exoPlayer) {
         onDispose {
             val pos = exoPlayer.currentPosition
             val dur = exoPlayer.duration
@@ -266,6 +270,12 @@ fun VideoPlayerScreen(
                 onSavePosition(pos, dur.coerceAtLeast(0L))
             }
             exoPlayer.release()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        onDispose {
             activity?.window?.let { window ->
                 WindowCompat.getInsetsController(window, view)
                     .show(WindowInsetsCompat.Type.systemBars())
@@ -389,6 +399,9 @@ fun VideoPlayerScreen(
                 }
             },
             update = { playerView ->
+                if (playerView.player !== exoPlayer) {
+                    playerView.player = exoPlayer
+                }
                 playerView.resizeMode = resizeMode
                 playerView.keepScreenOn = isPlaying
             },
@@ -743,6 +756,12 @@ fun VideoPlayerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             PlayerControlPill(
+                                icon = Icons.Rounded.VideoLibrary,
+                                label = strings.sourcesLabel,
+                                onClick = { activeDialog = ActivePlayerDialog.SOURCES },
+                                testTag = "player_sources_button"
+                            )
+                            PlayerControlPill(
                                 icon = Icons.Rounded.HighQuality,
                                 label = if (isAutoQuality) strings.qualityLabel else {
                                     qualityOptions.firstOrNull { it.isSelected }?.let { "${it.height}p" } ?: strings.qualityLabel
@@ -866,6 +885,25 @@ fun VideoPlayerScreen(
                     playbackSpeed = newSpeed
                     exoPlayer.playbackParameters = PlaybackParameters(newSpeed)
                     activeDialog = ActivePlayerDialog.NONE
+                },
+                onDismiss = { activeDialog = ActivePlayerDialog.NONE }
+            )
+        }
+
+        ActivePlayerDialog.SOURCES -> {
+            StreamSourcePickerDialog(
+                streams = session.availableStreams,
+                activeStreamId = session.stream.id,
+                onSelectStream = { selected ->
+                    val pos = exoPlayer.currentPosition
+                    val dur = exoPlayer.duration.coerceAtLeast(0L)
+                    if (pos >= 3_000L) onSavePosition(pos, dur)
+                    activeDialog = ActivePlayerDialog.NONE
+                    onSwitchStream(selected, pos)
+                },
+                onOpenAllSources = {
+                    activeDialog = ActivePlayerDialog.NONE
+                    onOpenAllSources()
                 },
                 onDismiss = { activeDialog = ActivePlayerDialog.NONE }
             )

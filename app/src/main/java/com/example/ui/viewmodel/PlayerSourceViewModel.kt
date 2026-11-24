@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -50,6 +51,9 @@ class PlayerSourceViewModel(
     private val _addonInstallState = MutableStateFlow<AddonInstallState>(AddonInstallState.Idle)
     val addonInstallState: StateFlow<AddonInstallState> = _addonInstallState.asStateFlow()
 
+    private val _autoPlayTarget = MutableStateFlow<PlaybackTarget?>(null)
+    val autoPlayTarget: StateFlow<PlaybackTarget?> = _autoPlayTarget.asStateFlow()
+
     private val _sourcePickerTarget = MutableStateFlow<PlaybackTarget?>(null)
     val sourcePickerTarget: StateFlow<PlaybackTarget?> = _sourcePickerTarget.asStateFlow()
 
@@ -63,7 +67,64 @@ class PlayerSourceViewModel(
 
     private var fetchJob: Job? = null
 
+    fun onPlayRequested(target: PlaybackTarget) {
+        fetchJob?.cancel()
+        fetchJob = viewModelScope.launch {
+            val currentAddons = addonRepository.installedAddonsFlow.first()
+            val hasEnabledStreamAddon = currentAddons.any {
+                it.enabled && it.supportsType(target.mediaType) && it.supportsResource("stream")
+            }
+
+            if (!hasEnabledStreamAddon) {
+                _autoPlayTarget.value = null
+                _streamFetchState.value = UiState.Success(AddonStreamFetchResult())
+                _sourcePickerTarget.value = target
+                return@launch
+            }
+
+            _sourcePickerTarget.value = null
+            _autoPlayTarget.value = target
+            _streamFetchState.value = UiState.Loading
+
+            val result = addonRepository.fetchStreamsAndSubtitles(
+                mediaType = target.mediaType,
+                streamId = target.streamId
+            )
+            _streamFetchState.value = UiState.Success(result)
+
+            val playableStreams = result.streams.filter { it.isDirectlyPlayable }
+            val bestStream = playableStreams.firstOrNull()
+
+            if (_autoPlayTarget.value?.playbackKey == target.playbackKey) {
+                _autoPlayTarget.value = null
+                if (bestStream != null) {
+                    val combinedSubs = (bestStream.subtitles + result.subtitles).distinctBy { it.url }
+                    _activeSession.value = ActivePlaybackSession(
+                        target = target,
+                        stream = bestStream,
+                        availableStreams = playableStreams,
+                        extraSubtitles = combinedSubs
+                    )
+                } else {
+                    _sourcePickerTarget.value = target
+                }
+            }
+        }
+    }
+
+    fun showAllSourcesDuringAutoPlay() {
+        val target = _autoPlayTarget.value ?: return
+        _autoPlayTarget.value = null
+        _sourcePickerTarget.value = target
+    }
+
+    fun cancelAutoPlay() {
+        _autoPlayTarget.value = null
+        fetchJob?.cancel()
+    }
+
     fun openSourcePicker(target: PlaybackTarget) {
+        _autoPlayTarget.value = null
         _sourcePickerTarget.value = target
         fetchStreamsFor(target)
     }
@@ -93,14 +154,28 @@ class PlayerSourceViewModel(
     fun startAddonStream(
         target: PlaybackTarget,
         stream: PlayableStream,
-        extraSubtitles: List<SubtitleTrackItem>
+        extraSubtitles: List<SubtitleTrackItem>,
+        allPlayableStreams: List<PlayableStream> = emptyList()
     ) {
+        _autoPlayTarget.value = null
         _sourcePickerTarget.value = null
         val combinedSubs = (stream.subtitles + extraSubtitles).distinctBy { it.url }
         _activeSession.value = ActivePlaybackSession(
             target = target,
             stream = stream,
+            availableStreams = allPlayableStreams.ifEmpty { listOf(stream) },
             extraSubtitles = combinedSubs
+        )
+    }
+
+    fun switchActiveStream(newStream: PlayableStream, currentPositionMs: Long = 0L) {
+        val current = _activeSession.value ?: return
+        val fetchedSubs = (_streamFetchState.value as? UiState.Success)?.data?.subtitles.orEmpty()
+        val combinedSubs = (newStream.subtitles + fetchedSubs + current.extraSubtitles).distinctBy { it.url }
+        _activeSession.value = current.copy(
+            stream = newStream,
+            extraSubtitles = combinedSubs,
+            initialSeekOverrideMs = currentPositionMs.takeIf { it >= 3_000L }
         )
     }
 
@@ -141,6 +216,7 @@ class PlayerSourceViewModel(
         _activeSession.value = ActivePlaybackSession(
             target = target,
             stream = stream,
+            availableStreams = listOf(stream),
             extraSubtitles = manualSubs
         )
     }
@@ -164,6 +240,7 @@ class PlayerSourceViewModel(
         _activeSession.value = ActivePlaybackSession(
             target = target,
             stream = stream,
+            availableStreams = listOf(stream),
             localSubtitleUri = subtitleUri
         )
     }
@@ -177,7 +254,7 @@ class PlayerSourceViewModel(
         val nextPlaybackKey = currentTarget.nextEpisodePlaybackKey ?: return
         val nextTitle = currentTarget.nextEpisodeTitle ?: currentTarget.title
         _activeSession.value = null
-        openSourcePicker(
+        onPlayRequested(
             PlaybackTarget(
                 playbackKey = nextPlaybackKey,
                 mediaId = currentTarget.mediaId,
@@ -219,14 +296,21 @@ class PlayerSourceViewModel(
         }
     }
 
-    fun installAddon(rawUrl: String) {
+    fun installAddon(rawUrl: String, autoPlayIfPickerOpen: Boolean = false) {
         viewModelScope.launch {
             _addonInstallState.value = AddonInstallState.Installing
             val result = addonRepository.installAddon(rawUrl)
             result.fold(
                 onSuccess = { addon ->
                     _addonInstallState.value = AddonInstallState.Installed(addon)
-                    _sourcePickerTarget.value?.let { fetchStreamsFor(it) }
+                    val pendingTarget = _sourcePickerTarget.value
+                    if (pendingTarget != null) {
+                        if (autoPlayIfPickerOpen) {
+                            onPlayRequested(pendingTarget)
+                        } else {
+                            fetchStreamsFor(pendingTarget)
+                        }
+                    }
                 },
                 onFailure = { err ->
                     _addonInstallState.value = AddonInstallState.Error(
