@@ -24,9 +24,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.BookmarkAdded
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -60,6 +63,8 @@ fun BoardScreen(
     boardState: UiState<BoardData>,
     libraryMap: Map<String, LibraryEntry>,
     continueWatching: List<LibraryEntry>,
+    isGuest: Boolean,
+    onRequestSignIn: () -> Unit,
     onRetry: () -> Unit,
     onOpenDetails: (type: String, id: String) -> Unit,
     onQuickAdd: (MediaItem) -> Unit,
@@ -105,6 +110,13 @@ fun BoardScreen(
                                 }
                             }
                         }
+                    }
+                } else if (isGuest) {
+                    item(key = "guest_resume_banner") {
+                        GuestResumeBanner(
+                            onSignInClick = onRequestSignIn,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
                     }
                 }
 
@@ -353,4 +365,65 @@ private fun SectionHeader(title: String) {
         color = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.padding(horizontal = 16.dp)
     )
+}
+
+@Composable
+private fun GuestResumeBanner(
+    onSignInClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val strings = LocalStrings.current
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(44.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Rounded.CloudSync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = strings.guestSyncTitle,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = strings.guestSyncDesc,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            FilledTonalButton(
+                onClick = onSignInClick,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("board_guest_signin_button")
+            ) {
+                Text(strings.signInWithGoogle)
+            }
+        }
+    }
 }

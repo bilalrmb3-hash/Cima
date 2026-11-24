@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.MovieFilter
 import androidx.compose.material.icons.rounded.PlayCircle
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,9 +67,6 @@ fun AuthScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val credentialManager = remember(context) { CredentialManager.create(context) }
-
-    var isLoading by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         attemptAutoSignIn(
@@ -181,80 +180,159 @@ fun AuthScreen(
 
                 Spacer(Modifier.height(32.dp))
 
-                AnimatedVisibility(visible = errorMessage != null) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Text(
-                            text = errorMessage.orEmpty(),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        errorMessage = null
-                        isLoading = true
-                        onGoogleSignInClicked(
-                            context = context,
-                            credentialManager = credentialManager,
-                            onAuthSuccess = {
-                                isLoading = false
-                                onAuthSuccess()
-                            },
-                            onAuthError = { msg ->
-                                isLoading = false
-                                errorMessage = msg
-                            },
-                            scope = scope,
-                            onAuthCancelled = {
-                                isLoading = false
-                            }
-                        )
-                    },
-                    enabled = !isLoading,
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = ButtonDefaults.ContentPadding,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .testTag("google_sign_in_button")
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(22.dp),
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.5.dp
-                        )
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            text = strings.signingIn,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(Modifier.width(10.dp))
-                        Text(
-                            text = strings.signInWithGoogle,
-                            style = MaterialTheme.typography.labelLarge
-                        )
-                    }
-                }
+                GoogleSignInButton(
+                    onAuthSuccess = onAuthSuccess
+                )
             }
         }
     }
+}
+
+@Composable
+fun GoogleSignInButton(
+    onAuthSuccess: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val strings = LocalStrings.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = modifier.fillMaxWidth()) {
+        AnimatedVisibility(visible = errorMessage != null) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                Text(
+                    text = errorMessage.orEmpty(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+
+        Button(
+            onClick = {
+                errorMessage = null
+                isLoading = true
+                onGoogleSignInClicked(
+                    context = context,
+                    credentialManager = credentialManager,
+                    onAuthSuccess = {
+                        isLoading = false
+                        onAuthSuccess()
+                    },
+                    onAuthError = { msg ->
+                        isLoading = false
+                        errorMessage = msg
+                    },
+                    scope = scope,
+                    onAuthCancelled = {
+                        isLoading = false
+                    }
+                )
+            },
+            enabled = !isLoading,
+            shape = RoundedCornerShape(16.dp),
+            contentPadding = ButtonDefaults.ContentPadding,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .testTag("google_sign_in_button")
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.5.dp
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = strings.signingIn,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.AutoAwesome,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    text = strings.signInWithGoogle,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun GoogleSignInPromptDialog(
+    onAuthSuccess: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val strings = LocalStrings.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Rounded.CloudSync,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        },
+        title = {
+            Text(
+                text = strings.signInRequiredTitle,
+                textAlign = TextAlign.Center
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = strings.signInRequiredDesc,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                GoogleSignInButton(
+                    onAuthSuccess = onAuthSuccess
+                )
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag("continue_as_guest_button")
+            ) {
+                Text(strings.continueAsGuest)
+            }
+        }
+    )
 }
 
 @Composable

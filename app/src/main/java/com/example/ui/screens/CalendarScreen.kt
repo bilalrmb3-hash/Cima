@@ -48,13 +48,30 @@ import java.util.Date
 
 @Composable
 fun CalendarScreen(
+    isGuest: Boolean,
     calendarState: UiState<CalendarSections>,
+    onSignInClick: () -> Unit,
     onRetry: () -> Unit,
     onExploreClick: () -> Unit,
     onOpenSeries: (id: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val strings = LocalStrings.current
+
+    if (isGuest) {
+        GuestTrackPromptBox(
+            icon = Icons.Rounded.CalendarMonth,
+            title = strings.guestCalendarTitle,
+            body = strings.guestCalendarBody,
+            signInLabel = strings.signInWithGoogle,
+            exploreLabel = strings.exploreCatalog,
+            onSignInClick = onSignInClick,
+            onExploreClick = onExploreClick,
+            signInTestTag = "calendar_signin_button",
+            modifier = modifier
+        )
+        return
+    }
 
     when (calendarState) {
         is UiState.Loading -> LoadingStateBox(strings.loading, modifier)

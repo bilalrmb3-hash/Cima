@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -43,9 +44,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
@@ -65,13 +67,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import coil.compose.AsyncImage
 import com.example.R
 import com.example.data.firestore.LibraryRepository
+import com.example.data.firestore.SeriesProgress
 import com.example.data.firestore.WatchStatus
 import com.example.data.preferences.AppLanguage
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.data.remote.CinemetaRepository
-import com.example.ui.auth.AuthScreen
+import com.example.ui.auth.GoogleSignInPromptDialog
+import com.example.ui.auth.attemptAutoSignIn
 import com.example.ui.auth.signOutUser
 import com.example.ui.i18n.ArabicStrings
 import com.example.ui.i18n.EnglishStrings
@@ -83,6 +88,7 @@ import com.example.ui.screens.DiscoverScreen
 import com.example.ui.screens.LibraryScreen
 import com.example.ui.screens.SettingsBottomSheet
 import com.example.ui.theme.CineBoardTheme
+import com.example.ui.viewmodel.CalendarSections
 import com.example.ui.viewmodel.CatalogViewModel
 import com.example.ui.viewmodel.LibraryMessageType
 import com.example.ui.viewmodel.LibraryViewModel
@@ -127,6 +133,10 @@ fun CineBoardApp() {
     val strings = if (prefs.language == AppLanguage.AR) ArabicStrings else EnglishStrings
     val layoutDirection = if (prefs.language == AppLanguage.AR) LayoutDirection.Rtl else LayoutDirection.Ltr
 
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
     var currentUser by remember { mutableStateOf(Firebase.auth.currentUser) }
     DisposableEffect(Unit) {
         val listener = FirebaseAuth.AuthStateListener { auth ->
@@ -134,6 +144,18 @@ fun CineBoardApp() {
         }
         Firebase.auth.addAuthStateListener(listener)
         onDispose { Firebase.auth.removeAuthStateListener(listener) }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Firebase.auth.currentUser == null) {
+            attemptAutoSignIn(
+                context = context,
+                credentialManager = credentialManager,
+                onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+                onUnauthenticated = {},
+                scope = scope
+            )
+        }
     }
 
     CompositionLocalProvider(
@@ -145,28 +167,20 @@ fun CineBoardApp() {
             dynamicColor = prefs.dynamicColor,
             language = prefs.language
         ) {
-            val user = currentUser
-            if (user == null) {
-                AuthScreen(
-                    onAuthSuccess = { currentUser = Firebase.auth.currentUser },
-                    onToggleLanguage = { settingsViewModel.toggleLanguage() }
-                )
-            } else {
-                key(user.uid) {
-                    AuthenticatedMainContent(
-                        user = user,
-                        settingsViewModel = settingsViewModel
-                    )
-                }
-            }
+            MainContent(
+                user = currentUser,
+                onAuthSuccess = { currentUser = Firebase.auth.currentUser },
+                settingsViewModel = settingsViewModel
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AuthenticatedMainContent(
-    user: FirebaseUser,
+private fun MainContent(
+    user: FirebaseUser?,
+    onAuthSuccess: () -> Unit,
     settingsViewModel: SettingsViewModel
 ) {
     val strings = LocalStrings.current
@@ -180,36 +194,54 @@ private fun AuthenticatedMainContent(
     val cinemetaRepository = remember { CinemetaRepository() }
 
     val catalogViewModel: CatalogViewModel = viewModel(
-        key = "catalog_${user.uid}",
+        key = "catalog_main",
         factory = viewModelFactory {
             initializer { CatalogViewModel(cinemetaRepository) }
         }
     )
 
-    val libraryViewModel: LibraryViewModel = viewModel(
-        key = user.uid,
-        factory = viewModelFactory {
-            initializer {
-                val app = checkNotNull(this[APPLICATION_KEY])
-                val databaseId = app.getString(R.string.firestore_database_id)
-                val db = FirebaseFirestore.getInstance(databaseId)
-                LibraryViewModel(
-                    libraryRepository = LibraryRepository(db),
-                    cinemetaRepository = cinemetaRepository,
-                    currentUserId = user.uid
-                )
-            }
+    val libraryViewModel: LibraryViewModel? = if (user != null) {
+        key(user.uid) {
+            viewModel(
+                key = user.uid,
+                factory = viewModelFactory {
+                    initializer {
+                        val app = checkNotNull(this[APPLICATION_KEY])
+                        val databaseId = app.getString(R.string.firestore_database_id)
+                        val db = FirebaseFirestore.getInstance(databaseId)
+                        LibraryViewModel(
+                            libraryRepository = LibraryRepository(db),
+                            cinemetaRepository = cinemetaRepository,
+                            currentUserId = user.uid
+                        )
+                    }
+                }
+            )
         }
-    )
+    } else {
+        null
+    }
 
     val boardState by catalogViewModel.boardState.collectAsStateWithLifecycle()
     val discoverFilter by catalogViewModel.discoverFilter.collectAsStateWithLifecycle()
     val discoverState by catalogViewModel.discoverState.collectAsStateWithLifecycle()
     val detailsStates by catalogViewModel.detailsStates.collectAsStateWithLifecycle()
 
-    val libraryState by libraryViewModel.libraryState.collectAsStateWithLifecycle()
-    val progressMap by libraryViewModel.progressMap.collectAsStateWithLifecycle()
-    val calendarState by libraryViewModel.calendarState.collectAsStateWithLifecycle()
+    val libraryState = if (libraryViewModel != null) {
+        libraryViewModel.libraryState.collectAsStateWithLifecycle().value
+    } else {
+        UiState.Success(emptyList())
+    }
+    val progressMap: Map<String, SeriesProgress> = if (libraryViewModel != null) {
+        libraryViewModel.progressMap.collectAsStateWithLifecycle().value
+    } else {
+        emptyMap()
+    }
+    val calendarState = if (libraryViewModel != null) {
+        libraryViewModel.calendarState.collectAsStateWithLifecycle().value
+    } else {
+        UiState.Success(CalendarSections())
+    }
 
     val libraryEntries = (libraryState as? UiState.Success)?.data.orEmpty()
     val libraryMap = remember(libraryEntries) { libraryEntries.associateBy { it.id } }
@@ -218,7 +250,8 @@ private fun AuthenticatedMainContent(
     }
 
     LaunchedEffect(libraryViewModel, strings) {
-        libraryViewModel.events.collect { event ->
+        val activeVm = libraryViewModel ?: return@LaunchedEffect
+        activeVm.events.collect { event ->
             val msg = when (event.type) {
                 LibraryMessageType.ADDED -> strings.addedToLibraryMsg
                 LibraryMessageType.STATUS_UPDATED -> strings.updatedStatusMsg
@@ -246,6 +279,8 @@ private fun AuthenticatedMainContent(
     val isTopLevelRoute = tabs.any { it.route == currentRoute }
 
     var showSettingsSheet by remember { mutableStateOf(false) }
+    var showSignInDialog by remember { mutableStateOf(false) }
+    val isGuest = user == null
 
     val navigateToTab: (String) -> Unit = { route ->
         navController.navigate(route) {
@@ -330,10 +365,21 @@ private fun AuthenticatedMainContent(
                                         .padding(end = 6.dp)
                                         .testTag("topbar_settings_button")
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.AccountCircle,
-                                        contentDescription = strings.settingsTitle
-                                    )
+                                    if (user?.photoUrl != null) {
+                                        AsyncImage(
+                                            model = user.photoUrl,
+                                            contentDescription = strings.settingsTitle,
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                        )
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Rounded.AccountCircle,
+                                            contentDescription = strings.settingsTitle
+                                        )
+                                    }
                                 }
                             }
                         )
@@ -371,12 +417,19 @@ private fun AuthenticatedMainContent(
                             boardState = boardState,
                             libraryMap = libraryMap,
                             continueWatching = continueWatching,
+                            isGuest = isGuest,
+                            onRequestSignIn = { showSignInDialog = true },
                             onRetry = { catalogViewModel.loadBoard() },
                             onOpenDetails = { type, id ->
                                 navController.navigate(Routes.detail(type, id))
                             },
                             onQuickAdd = { item ->
-                                libraryViewModel.saveMediaItem(item, WatchStatus.WATCHLIST)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.saveMediaItem(item, WatchStatus.WATCHLIST)
+                                }
                             },
                             modifier = Modifier.padding(innerPadding)
                         )
@@ -400,15 +453,27 @@ private fun AuthenticatedMainContent(
 
                     composable(Routes.LIBRARY) {
                         LibraryScreen(
+                            isGuest = isGuest,
                             libraryState = libraryState,
+                            onSignInClick = { showSignInDialog = true },
                             onOpenDetails = { type, id ->
                                 navController.navigate(Routes.detail(type, id))
                             },
                             onUpdateStatus = { entry, status ->
-                                libraryViewModel.updateEntryStatus(entry, status)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.updateEntryStatus(entry, status)
+                                }
                             },
                             onRemoveEntry = { mediaId ->
-                                libraryViewModel.removeFromLibrary(mediaId)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.removeFromLibrary(mediaId)
+                                }
                             },
                             onExploreClick = { navigateToTab(Routes.DISCOVER) },
                             modifier = Modifier.padding(innerPadding)
@@ -417,8 +482,10 @@ private fun AuthenticatedMainContent(
 
                     composable(Routes.CALENDAR) {
                         CalendarScreen(
+                            isGuest = isGuest,
                             calendarState = calendarState,
-                            onRetry = { libraryViewModel.refreshCalendar() },
+                            onSignInClick = { showSignInDialog = true },
+                            onRetry = { libraryViewModel?.refreshCalendar() },
                             onExploreClick = { navigateToTab(Routes.DISCOVER) },
                             onOpenSeries = { id ->
                                 navController.navigate(Routes.detail("series", id))
@@ -453,19 +520,38 @@ private fun AuthenticatedMainContent(
                             onBack = { navController.popBackStack() },
                             onRetry = { catalogViewModel.loadDetails(type, id, forceRefresh = true) },
                             onUpdateStatus = { details, status, inLib ->
-                                libraryViewModel.updateMediaStatus(details, status, inLib)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.updateMediaStatus(details, status, inLib)
+                                }
                             },
                             onRemoveFromLibrary = { mediaId ->
-                                libraryViewModel.removeFromLibrary(mediaId)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.removeFromLibrary(mediaId)
+                                }
                             },
                             onToggleEpisode = { details, episode ->
-                                libraryViewModel.toggleEpisodeWatched(details, episode)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.toggleEpisodeWatched(details, episode)
+                                }
                             },
                             onMarkSeasonWatched = { details, season, mark ->
-                                libraryViewModel.markSeasonWatched(details, season, mark)
+                                val vm = libraryViewModel
+                                if (vm == null) {
+                                    showSignInDialog = true
+                                } else {
+                                    vm.markSeasonWatched(details, season, mark)
+                                }
                             },
                             onShowMessage = { msg ->
-                                // Launch snackbar via scope
                                 scope.launch { snackbarHostState.showSnackbar(msg) }
                             }
                         )
@@ -482,11 +568,25 @@ private fun AuthenticatedMainContent(
             onLanguageChange = { settingsViewModel.setLanguage(it) },
             onThemeModeChange = { settingsViewModel.setThemeMode(it) },
             onDynamicColorChange = { settingsViewModel.setDynamicColor(it) },
+            onSignIn = {
+                showSettingsSheet = false
+                showSignInDialog = true
+            },
             onSignOut = {
                 showSettingsSheet = false
                 signOutUser(credentialManager = credentialManager, scope = scope)
             },
             onDismiss = { showSettingsSheet = false }
+        )
+    }
+
+    if (showSignInDialog && user == null) {
+        GoogleSignInPromptDialog(
+            onAuthSuccess = {
+                showSignInDialog = false
+                onAuthSuccess()
+            },
+            onDismiss = { showSignInDialog = false }
         )
     }
 }

@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -47,6 +50,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
 import coil.compose.AsyncImage
 import com.example.data.firestore.LibraryEntry
 import com.example.data.firestore.WatchStatus
@@ -58,7 +63,9 @@ import com.example.ui.viewmodel.UiState
 
 @Composable
 fun LibraryScreen(
+    isGuest: Boolean,
     libraryState: UiState<List<LibraryEntry>>,
+    onSignInClick: () -> Unit,
     onOpenDetails: (type: String, id: String) -> Unit,
     onUpdateStatus: (LibraryEntry, WatchStatus) -> Unit,
     onRemoveEntry: (String) -> Unit,
@@ -68,6 +75,21 @@ fun LibraryScreen(
     val strings = LocalStrings.current
     var selectedStatus by rememberSaveable { mutableStateOf<WatchStatus?>(null) }
     var selectedType by rememberSaveable { mutableStateOf<String?>(null) }
+
+    if (isGuest) {
+        GuestTrackPromptBox(
+            icon = Icons.Rounded.CloudSync,
+            title = strings.guestLibraryTitle,
+            body = strings.guestLibraryBody,
+            signInLabel = strings.signInWithGoogle,
+            exploreLabel = strings.exploreCatalog,
+            onSignInClick = onSignInClick,
+            onExploreClick = onExploreClick,
+            signInTestTag = "library_signin_button",
+            modifier = modifier
+        )
+        return
+    }
 
     when (libraryState) {
         is UiState.Loading -> LoadingStateBox(strings.loading, modifier)
@@ -336,6 +358,78 @@ private fun LibraryEntryRowCard(
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun GuestTrackPromptBox(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    body: String,
+    signInLabel: String,
+    exploreLabel: String,
+    onSignInClick: () -> Unit,
+    onExploreClick: () -> Unit,
+    signInTestTag: String,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                modifier = Modifier.size(76.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.height(18.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+            Spacer(Modifier.height(22.dp))
+            Button(
+                onClick = onSignInClick,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag(signInTestTag)
+            ) {
+                Text(signInLabel)
+            }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onExploreClick,
+                modifier = Modifier.testTag("${signInTestTag}_explore")
+            ) {
+                Text(exploreLabel)
             }
         }
     }
